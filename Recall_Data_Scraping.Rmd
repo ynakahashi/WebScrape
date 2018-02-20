@@ -27,6 +27,7 @@ Google Chromeのデベロッパーツールでhtmlの構成を把握
 ```{r}
 library(rvest)
 library(dplyr)
+library(tidyr)
 library(stringr)
 ```
 
@@ -110,20 +111,22 @@ for (i in 4:5) {
             text_tmp <- 
                html_table(recall_html_tmp)[[2]] %>% 
                filter(X1 %in% extract_item) %>% 
-               select(X1, X2)
+               select(X1, X2) %>% 
+               mutate("YMD" = sprintf("%s年%s月%s日", Y, M, D)) %>%
+               spread(X1, X2)
             text_all <- 
                text_all %>% 
-               bind_rows(text_tmp) %>% 
-               mutate("YMD" = sprintf("%s年%s月%s日", Y, M, D))
+               bind_rows(text_tmp)
          }
       }
-      sprintf("%s年%s月%s日", Y, M, D)
-      cat("\n")
    }
 }
 ```
 
 
+```{r}
+save(text_all, file = "Text_Data.Rdata")
+```
 
 
 
