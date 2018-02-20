@@ -1,0 +1,130 @@
+---
+title: "Web Scraping"
+output: html_notebook
+authour: Y.Nakahashi
+date: 2018-02-20
+---
+
+### 目的
+国交省のサイトにあるリコールのデータを取得してテキストマイニングにかけたい。
+
+### 分析の進め方
+ 1. サイトのページ構成を把握
+ 1. 構成にマッチするようにループを組んで`rvest::read_html`で読み込み
+ 1. 分析対象となる部分を取り出す
+ 1. Mecabで形態素解析
+ 1. 集計
+
+#### サイトのページ構成を把握
+Google Chromeのデベロッパーツールでhtmlの構成を把握
+
+#### 構成にマッチするようにループを組んで`rvest::read_html`で読み込み
+```{r}
+# install.packages("rvest")
+```
+
+ライブラリの読み込み
+```{r}
+library(rvest)
+library(dplyr)
+library(stringr)
+```
+
+お試し
+```{r}
+recall_html <- read_html("http://www.mlit.go.jp/jidosha/recall/recall01/01/recall1-15_.html",
+                         encoding = "SJIS")
+```
+
+オブジェクトの中身の確認
+```{r}
+html_structure(recall_html)
+as_list(recall_html)
+xml_children(recall_html)
+xml_contents(recall_html)
+```
+
+<body>のテキストを取り出すなら以下のよう。
+```{r}
+recall_html %>% 
+   html_nodes("body") %>% 
+   html_text()
+```
+
+ページの全てのtableのテキストを取り出すならこう。
+```{r}
+tbl_txt <- 
+   recall_html %>% 
+   html_nodes(xpath="//table") %>% 
+   html_text()
+```
+
+```{r}
+tbl_txt[2]
+```
+
+```{r}
+cat(tbl_txt[2])
+```
+
+必要なデータだけを取り出してみる。
+
+```{r}
+extract_item <- c("車　名", "対象台数", "不具合の部位", "不具合の状況")
+html_table(recall_html)[[2]] %>% 
+   filter(X1 %in% extract_item) %>% 
+   select(X1, X2)
+```
+
+
+本番
+```{r}
+extract_item <- c("車名", "車 名", "車 名", "車　名", "メーカー名等", "対象台数", "不具合の部位",
+                  "不具合の状況")
+text_all <- data.frame()
+for (i in 4:5) {
+   ## 年を指定。16年~17年まで
+   Y <- str_pad(i, 2, pad = 0)
+   
+   for (j in 1:12) {
+      ## 月を指定
+      M <- str_pad(j, 2, pad = 0)
+      
+      for (k in 1:31) {
+         ## 日付を指定
+         D <- str_pad(k, 2, pad = 0)
+         
+         ## break用のフラグ
+         Flag <- 0
+         
+         for (l in 1:10) {
+            Sys.sleep(3)
+            page_name <- paste0("http://www.mlit.go.jp/jidosha/recall/", 
+                                "recall", Y, "/", M, "/", "recall", M, "-", D, l, ".html")
+            tryCatch({
+               recall_html_tmp <- read_html(page_name, encoding = "SJIS")
+            }, error = function(e){
+               Flag <<- 1})
+            if(Flag == 1) break
+            
+            text_tmp <- 
+               html_table(recall_html_tmp)[[2]] %>% 
+               filter(X1 %in% extract_item) %>% 
+               select(X1, X2)
+            text_all <- 
+               text_all %>% 
+               bind_rows(text_tmp) %>% 
+               mutate("YMD" = sprintf("%s年%s月%s日", Y, M, D))
+         }
+      }
+      sprintf("%s年%s月%s日", Y, M, D)
+      cat("\n")
+   }
+}
+```
+
+
+
+
+
+
