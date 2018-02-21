@@ -1,26 +1,32 @@
 ---
-title: "Web Scraping"
+title: "RでWeb Scrapingしたい"
 output: html_notebook
 authour: Y.Nakahashi
 date: 2018-02-20
 ---
 
-### 目的
-国交省のサイトにあるリコールのデータを取得してテキストマイニングにかけたい。
+## 背景
+ちょっとした用事によりリコール情報について調査する機会がありました。これまでWebスクレイピングは経験がなかったのですが、便利な関数（rvest）もあることだし、挑戦してみた結果を紹介します。
+内容としては、国交省のサイトにある「リコール情報検索」（[こちら](http://carinf.mlit.go.jp/jidosha/carinf/ris/index.html)）からリコールデータを取得し、テキストマイニングにかけた、というものです。
 
-### 分析の進め方
+
+## 分析の進め方
+分析の進め方は以下の通りです：
+
  1. サイトのページ構成を把握
  1. 構成にマッチするようにループを組んで`rvest::read_html`で読み込み
- 1. 分析対象となる部分を取り出す
  1. Mecabで形態素解析
  1. 集計
 
-#### サイトのページ構成を把握
-Google Chromeのデベロッパーツールでhtmlの構成を把握
+特別なことはしておらず、サイトのページ構成に合わせて必要なデータを取得し、集計などを行います。
 
-#### 構成にマッチするようにループを組んで`rvest::read_html`で読み込み
-##### ライブラリのインストール
-{rvest}、{RMecab}、{wordcloud}のインストール。RMecabは、[この記事](https://qiita.com/hujuu/items/314a64a50875cdabf755)を参考にMecabのインストールから。
+
+### １．サイトのページ構成を把握
+ここは、Rではなくブラウザの機能を使いました。例えば[この辺りの記事](https://book.mynavi.jp/manatee/detail/id=59386)を参考に、Google Chromeのデベロッパーツールでhtmlの構成を把握しました。
+
+### ２．構成にマッチするようにループを組んで`rvest::read_html`で読み込み
+#### ライブラリのインストール
+ここからがRによる処理となります。まずは必要なライブラリをインストールして読み込みます。今回新しくインストールしたライブラリは以下の通りで、RMecabは[こちらの記事](https://qiita.com/hujuu/items/314a64a50875cdabf755)を参考にMecabのインストールから行いました。以下は、Mecabのインストールが終わっている前提です。
 
 ```{r}
 # install.packages("rvest")
@@ -28,7 +34,9 @@ Google Chromeのデベロッパーツールでhtmlの構成を把握
 # install.packages("wordcloud")
 ```
 
-##### ライブラリの読み込み
+#### ライブラリの読み込み
+インストールしたライブラリ以外に、{dplyr}や{tidyr}などの定番ライブラリ、またテキストデータを扱うので{stringr}や{stringi}なども読み込んでいます。
+
 ```{r}
 library(rvest)
 library(dplyr)
@@ -40,125 +48,167 @@ library(ggplot2)
 library(wordcloud)
 ```
 
-##### {RMecab}のお試し
+#### {RMecab}のお試し
+ここで少し{RMecab}を使ってみましょう。こんな使い方ができます。
+
 ```{r}
 # res <- RMeCabC("すもももももももものうち")
 # unlist (res)
 ```
 
-##### rvestのお試し
+#### {rvest}のお試し
+同じく{rvest}も試してみます。*read_html*で指定したURLのページ構成をごそっと取ってきてくれます。
+
 ```{r}
-recall_html <- read_html("http://www.mlit.go.jp/jidosha/recall/recall01/01/recall1-15_.html",
-                         encoding = "SJIS")
+source_url <- "http://carinf.mlit.go.jp/jidosha/carinf/ris/search.html?selCarTp=1&lstCarNo=1060&txtMdlNm=&txtFrDat=2000/01/01&txtToDat=2017/12/31&page=1"
+recall_html <- read_html(source_url, encoding = "UTF-8")
 ```
 
-##### オブジェクトの中身の確認
-関数はこんな感じ。
-```{r}
-html_structure(recall_html)
-as_list(recall_html)
-xml_children(recall_html)
-xml_contents(recall_html)
-```
+取ってきたデータの中身を確認するためには、例えば以下のようにします：
 
-<body>のテキストを取り出すなら以下のよう。
 ```{r}
 recall_html %>% 
-   html_nodes("body") %>% 
+   html_nodes("body") %>% # HTMLのbodyタグの情報を取り出す
+   html_text() # テキストデータを取り出す
+```
+
+またページの全てのtableのテキストを取り出す時はこのようになります：
+```{r}
+recall_html %>%
+   html_nodes(xpath="//table") %>%
    html_text()
 ```
 
-ページの全てのtableのテキストを取り出すならこう。
-```{r}
-tbl_txt <- 
-   recall_html %>% 
-   html_nodes(xpath="//table") %>% 
-   html_text()
-```
+#### 本番
+それではここからが本番です。まずは対象となるページと、したいことが何であるかを確認しておきましょう。
+
+   リコール情報検索の画像
+
+こちらが今回の分析対象となるページです。この検索条件として例えば車名を「ニッサン」、届出日を「2017/01/01」〜「2017/12/31」としてみましょう。
+
+   検索結果の画像
+
+このように条件に合致したリコール情報を一覧表示してくれます。例えば１個目をクリックすると、
+
+   1個目の画像
+
+リコール情報の詳細について知ることができます。このうち、上段の表にある「車名/メーカー名」や「不具合装置」、「対象台数」などを取得したいのですが、リンクを一つずつ辿ってコピーしてくるのは大変なので、スクリプトを書いて情報を取ってきたい、というのが今回の取り組みです。
+
+スクリプトの大まかな内容としては、
+
+ 1. 検索結果の画面から、各リコールの詳細結果画面へのURLを取得する
+ 1. 取得したURLに順次アクセスし、必要な情報を取り出してまとめる
+ 1. 次のページに移動し、繰り返し
+
+という感じになります。3についてですが、幸いなことに1の検索結果URLは、次ページを確認すると末尾が「page=2」となっています。ここから元のページに戻ると「page=1」となっており、数値を変更するだけで任意のページに行けそうなので、検索結果のページ数（今回は5）だけメモしておけばループで回せそうです。
+また、各リコールの詳細結果画面についてはURLが「http://carinf.mlit.go.jp/jidosha/carinf/ris/detail/1141591.html」
+のようになっており、末尾の「数字7桁」を変えていけば良さそうです。
 
 ```{r}
-tbl_txt[2]
+# Nissan_search <- ""
+# Toyota_search <- ""
+# Honda_search  <- ""
 ```
+
+というわけで、以下のように検索結果と各リコールの詳細結果画面のURLについて、変更がない部分を定義しておきます。
 
 ```{r}
-cat(tbl_txt[2])
+src_url <- "http://carinf.mlit.go.jp/jidosha/carinf/ris/search.html?selCarTp=1&lstCarNo=1060&txtMdlNm=&txtFrDat=2017/01/01&txtToDat=2017/12/31&page="
+link_url <- "http://carinf.mlit.go.jp/jidosha/carinf/ris/"
 ```
 
-必要なデータだけを取り出してみる。
+また分析に用いる項目を以下の5つとし、結果の格納用のデータフレームを準備しておきます。
+
 ```{r}
-extract_item <- c("車　名", "対象台数", "不具合の部位", "不具合の状況")
-html_table(recall_html)[[2]] %>% 
-   filter(X1 %in% extract_item) %>% 
-   select(X1, X2)
+target_column <- c("車名/メーカー名", "不具合装置", "状　況", "リコール開始日", "対象台数")
+html_tbl_all <- data_frame()
 ```
 
-#### 構成にマッチするようにループを組んで`rvest::read_html`で読み込み
-本番。ページ構成が年次によって違うので、ひとまず取りやすい年次だけ対象とする。
-必要になった段階で他の対応を考える。
+以下、リコール情報を順次取得していきます。スクリプトの流れのセクションで書いたように、検索結果の画面のページを変えつつ、各リコールの詳細結果画面へのURLを取得し、*read_html*でデータを取り出していきます。
 
-```{r warning = FALSE}
-# options(warn = -1)
-extract_item <- c("車名", "車 名", "車 名", "車　名", "メーカー名等", "対象台数", "不具合の部位",
-                  "不具合の状況")
-text_all <- data.frame()
-# for (i in 4:5) {
-   ## 年を指定。16年と17年を対象とする
-   ## 今回は時間の都合上、データの取得年次を16年に限定する
-   i <- 4
-   Y <- str_pad(i, 2, pad = 0)
-   
-   for (j in 1:12) {
-      ## 月を指定
-      M <- str_pad(j, 2, pad = 0)
+```{r}
+st <- Sys.time()
+## iはページ数。事前にメモしておく。
+for (i in 1:1) {
+
+   ## 検索結果の各ページのURLを指定し、データを取得
+   target_page <- paste0(src_url, i)
+   recall_html <- read_html(target_page, encoding = "UTF-8")
+
+   ## 検索結果画面から、各リコール詳細結果へのURLを取得
+   target_url_list <- 
+      recall_html %>% 
+      html_nodes(xpath = "//a") %>% # aタグに格納されている
+      html_attr("href") %>% # href属性のデータを取り出す
+      as_data_frame() %>% 
+      filter(grepl("detail", .$value)) # 詳細結果は"detail" + 数字7桁 + .htmlで構成されている
+
+   ## 詳細結果の数
+   l <- nrow(target_url_list)
+
+   ## ここから各詳細結果へアクセスし、データを取得する   
+   for (j in 1:l) {
+      ## アクセス負荷を軽減するため、少し間を置く
+      Sys.sleep(2) 
       
-      for (k in 1:31) {
-         ## 日付を指定
-         D <- str_pad(k, 2, pad = 0)
-         
-         ## break用のフラグ
-         Flag <- 0
-         
-         for (l in 1:10) {
-            Sys.sleep(3)
-            page_name <- paste0("http://www.mlit.go.jp/jidosha/recall/", 
-                                "recall", Y, "/", M, "/", "recall", M, "-", D, l, ".html")
-            tryCatch({
-               recall_html_tmp <- read_html(page_name, encoding = "SJIS")
-            }, error = function(e){
-               Flag <<- 1})
-            if(Flag == 1) break
-            
-            text_tmp <- 
-               html_table(recall_html_tmp)[[2]] %>% 
-               filter(X1 %in% extract_item) %>% 
-               select(X1, X2) %>% 
-               mutate("YMD" = sprintf("%s年%s月%s日", Y, M, D)) %>%
-               spread(X1, X2)
-            text_all <- 
-               text_all %>% 
-               bind_rows(text_tmp)
-         }
-      }
+      ## 詳細結果へのURLを指定し、データを取得
+      target_url      <- paste0(link_url, target_url_list$value[j])
+      recall_html_tmp <- read_html(target_url)
+      html_tbl_tmp    <- html_table(recall_html_tmp)[[1]] ## 上段のテーブルのデータを取得
+      
+      ## ４列あるが、1・3列目に項目名が、2・4列目にデータが入っているので、2列のデータに直す
+      html_tbl <- 
+         html_tbl_tmp %>% 
+         filter(X1 %in% target_column) %>% ## 必要な情報を抽出
+         rename("Term" = X1, "Value" = X2) %>%
+         select(Term, Value) %>% 
+         bind_rows(
+            html_tbl_tmp %>% 
+            filter(X3 %in% target_column) %>% 
+            rename("Term" = X3, "Value" = X4) %>%
+            select(Term, Value)) %>% 
+         spread(Term, Value) ## 順次追加していけるよう、wideに変換
+
+      ## データを追加      
+      html_tbl_all <- bind_rows(html_tbl_all, html_tbl)
    }
-# }
+}
+Sys.time() - st
 ```
 
-結構時間がかかるのでデータを保存しておく。一年分で323行となり、一時間以上かかった。
+このスクリプトでは一年分の日産のデータを取得するのにxxx分かかりました。結構時間がかかるので、データを保存しておきます。
 
 ```{r}
-save(text_all, file = "Text_Data.Rdata")
+save(html_tbl_all, file = "Recall_Data.Rdata")
 ```
+
+
+### ３．Mecabで形態素解析
+ではこれ以降、取得したデータで分析を行います。と言ってもMecabによる形態素解析を掛けた後は集計して可視化するぐらいのものです。
 
 #### 分析対象となる部分を取り出す
-今回の対象は「不具合の状況」と「不具合の部位」。RMecabではテキストファイルから読み込むので書き出し。
+形態素解析の対象は「状 況」です。RMecabではテキストファイルからデータを読み込んで処理するので、テキストとして書き出しておきましょう。
 
 ```{r}
-load("Text_Data.Rdata")
-txt_defect_situation <- text_all$不具合の状況
-txt_defect_location  <- text_all$不具合の部位
-write.csv(txt_defect_situation, file = "Fuguai_Johkyo.csv")
-write.csv(txt_defect_location, file = "Fuguai_Basho.csv")
+load("Recall_Data.Rdata") ## 必要なら
+txt_defect_situation <- html_tbl_all$`状　況`
+write.csv(txt_defect_situation, file = "Situation.csv")
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #### Mecabで形態素解析
@@ -269,59 +319,105 @@ ggplot(tmp, aes(x = Num, group = Maker2)) +
 
 
 
-### 別のページから
 
+
+
+
+
+
+
+
+
+##### オブジェクトの中身の確認
+関数はこんな感じ。
 ```{r}
-Nissan_search <- ""
-Toyota_search <- ""
-Honda_search  <- ""
+# html_structure(recall_html)
+# as_list(recall_html)
+# xml_children(recall_html)
+# xml_contents(recall_html)
 ```
 
+<body>のテキストを取り出すなら以下のよう。
+```{r}
+recall_html %>% 
+   html_nodes("body") %>% 
+   html_text()
+```
+
+ページの全てのtableのテキストを取り出すならこう。
+```{r}
+# tbl_txt <- 
+#    recall_html %>% 
+#    html_nodes(xpath="//table") %>% 
+#    html_text()
+```
 
 ```{r}
-src_url <- "http://carinf.mlit.go.jp/jidosha/carinf/ris/search.html?selCarTp=1&lstCarNo=1060&txtMdlNm=&txtFrDat=2000/01/01&txtToDat=2017/12/31&page="
-link_url <- "http://carinf.mlit.go.jp/jidosha/carinf/ris/"
-target_column <- c("車名/メーカー名", "不具合装置", "状　況", "リコール開始日", "対象台数")
-html_tbl_all <- data_frame()
+# tbl_txt[2]
+```
 
-st <- Sys.time()
-for (i in 1:1) {
+```{r}
+# cat(tbl_txt[2])
+```
 
-   target_page <- paste0(src_url, i)
-   recall_html <- read_html(target_page, encoding = "UTF-8")
+必要なデータだけを取り出してみる。
+```{r}
+# extract_item <- c("車　名", "対象台数", "不具合の部位", "不具合の状況")
+# html_table(recall_html)[[2]] %>% 
+#    filter(X1 %in% extract_item) %>% 
+#    select(X1, X2)
+```
 
-   target_url_list <- 
-      recall_html %>% 
-      html_nodes(xpath = "//a") %>% 
-      html_attr("href") %>% 
-      as_data_frame() %>% 
-      filter(grepl("detail", .$value))
+#### 構成にマッチするようにループを組んで`rvest::read_html`で読み込み
+本番。ページ構成が年次によって違うので、ひとまず取りやすい年次だけ対象とする。
+必要になった段階で他の対応を考える。
 
-   l <- nrow(target_url_list)
+```{r warning = FALSE}
+# options(warn = -1)
+extract_item <- c("車名", "車 名", "車 名", "車　名", "メーカー名等", "対象台数", "不具合の部位",
+                  "不具合の状況")
+text_all <- data.frame()
+# for (i in 4:5) {
+   ## 年を指定。16年と17年を対象とする
+   ## 今回は時間の都合上、データの取得年次を16年に限定する
+   i <- 4
+   Y <- str_pad(i, 2, pad = 0)
    
-   for (j in 1:l) {
-      Sys.sleep(2)
-      target_url <- paste0(link_url, target_url_list$value[j])
-      recall_html_tmp <- read_html(target_url)
-      html_tbl_tmp <- html_table(recall_html_tmp)[[1]]
+   for (j in 1:12) {
+      ## 月を指定
+      M <- str_pad(j, 2, pad = 0)
       
-      html_tbl <- 
-         html_tbl_tmp %>% 
-         filter(X1 %in% target_column) %>% 
-         rename("Term" = X1, "Value" = X2) %>%
-         select(Term, Value) %>% 
-         bind_rows(
-            html_tbl_tmp %>% 
-            filter(X3 %in% target_column) %>% 
-            rename("Term" = X3, "Value" = X4) %>%
-            select(Term, Value)) %>% 
-         spread(Term, Value)
-      
-      html_tbl_all <- bind_rows(html_tbl_all, html_tbl)
+      for (k in 1:31) {
+         ## 日付を指定
+         D <- str_pad(k, 2, pad = 0)
+         
+         ## break用のフラグ
+         Flag <- 0
+         
+         for (l in 1:10) {
+            Sys.sleep(3)
+            page_name <- paste0("http://www.mlit.go.jp/jidosha/recall/", 
+                                "recall", Y, "/", M, "/", "recall", M, "-", D, l, ".html")
+            tryCatch({
+               recall_html_tmp <- read_html(page_name, encoding = "SJIS")
+            }, error = function(e){
+               Flag <<- 1})
+            if(Flag == 1) break
+            
+            text_tmp <- 
+               html_table(recall_html_tmp)[[2]] %>% 
+               filter(X1 %in% extract_item) %>% 
+               select(X1, X2) %>% 
+               mutate("YMD" = sprintf("%s年%s月%s日", Y, M, D)) %>%
+               spread(X1, X2)
+            text_all <- 
+               text_all %>% 
+               bind_rows(text_tmp)
+         }
+      }
    }
-}
-Sys.time() - st
+# }
 ```
 
-一回1.6分、日産の場合は40Pあるので64分かかる計算。
+
 
