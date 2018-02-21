@@ -19,25 +19,41 @@ date: 2018-02-20
 Google Chromeのデベロッパーツールでhtmlの構成を把握
 
 #### 構成にマッチするようにループを組んで`rvest::read_html`で読み込み
+##### ライブラリのインストール
+{rvest}、{RMecab}、{wordcloud}のインストール。RMecabは、[この記事](https://qiita.com/hujuu/items/314a64a50875cdabf755)を参考にMecabのインストールから。
+
 ```{r}
 # install.packages("rvest")
+# install.packages("RMeCab", repos = "http://rmecab.jp/R")
+# install.packages("wordcloud")
 ```
 
-ライブラリの読み込み
+##### ライブラリの読み込み
 ```{r}
 library(rvest)
 library(dplyr)
 library(tidyr)
 library(stringr)
+library(stringi)
+library(RMeCab)
+library(ggplot2)
+library(wordcloud)
 ```
 
-お試し
+##### {RMecab}のお試し
+```{r}
+# res <- RMeCabC("すもももももももものうち")
+# unlist (res)
+```
+
+##### rvestのお試し
 ```{r}
 recall_html <- read_html("http://www.mlit.go.jp/jidosha/recall/recall01/01/recall1-15_.html",
                          encoding = "SJIS")
 ```
 
-オブジェクトの中身の確認
+##### オブジェクトの中身の確認
+関数はこんな感じ。
 ```{r}
 html_structure(recall_html)
 as_list(recall_html)
@@ -69,7 +85,6 @@ cat(tbl_txt[2])
 ```
 
 必要なデータだけを取り出してみる。
-
 ```{r}
 extract_item <- c("車　名", "対象台数", "不具合の部位", "不具合の状況")
 html_table(recall_html)[[2]] %>% 
@@ -77,14 +92,19 @@ html_table(recall_html)[[2]] %>%
    select(X1, X2)
 ```
 
+#### 構成にマッチするようにループを組んで`rvest::read_html`で読み込み
+本番。ページ構成が年次によって違うので、ひとまず取りやすい年次だけ対象とする。
+必要になった段階で他の対応を考える。
 
-本番
-```{r}
+```{r warning = FALSE}
+# options(warn = -1)
 extract_item <- c("車名", "車 名", "車 名", "車　名", "メーカー名等", "対象台数", "不具合の部位",
                   "不具合の状況")
 text_all <- data.frame()
-for (i in 4:5) {
-   ## 年を指定。16年~17年まで
+# for (i in 4:5) {
+   ## 年を指定。16年と17年を対象とする
+   ## 今回は時間の都合上、データの取得年次を16年に限定する
+   i <- 4
    Y <- str_pad(i, 2, pad = 0)
    
    for (j in 1:12) {
@@ -120,13 +140,133 @@ for (i in 4:5) {
          }
       }
    }
-}
+# }
 ```
 
+結構時間がかかるのでデータを保存しておく。一年分で323行となり、一時間以上かかった。
 
 ```{r}
 save(text_all, file = "Text_Data.Rdata")
 ```
+
+#### 分析対象となる部分を取り出す
+今回の対象は「不具合の状況」と「不具合の部位」。RMecabではテキストファイルから読み込むので書き出し。
+
+```{r}
+load("Text_Data.Rdata")
+txt_defect_situation <- text_all$不具合の状況
+txt_defect_location  <- text_all$不具合の部位
+write.csv(txt_defect_situation, file = "Fuguai_Johkyo.csv")
+write.csv(txt_defect_location, file = "Fuguai_Basho.csv")
+```
+
+
+#### Mecabで形態素解析
+##### 読み込み
+```{r}
+txt_sit <- RMeCabFreq("Fuguai_Johkyo.csv")
+txt_loc <- RMeCabFreq("Fuguai_Basho.csv")
+```
+
+##### 不具合の状況
+データ加工
+```{r}
+Noun_res_sit <- 
+   txt_sit %>% 
+   filter(Info1 == "名詞") %>% 
+   filter(!Info2 %in% c("非自立", "代名詞")) %>%
+   group_by(Term, Info1) %>% 
+   summarise("TF" = sum(Freq)) %>% 
+   ungroup() %>% 
+   arrange(desc(TF)) %>% 
+   mutate(Pos = factor(Term, levels = .$Term))
+```
+
+単語の頻度で棒グラフにより可視化
+```{r}
+ggplot(Noun_res_sit[1:20, ], aes(x = Pos, y = TF)) +
+   geom_bar(stat = "Identity") +
+   theme_bw(base_family = "HiraKakuProN-W3")
+```
+
+Wordcloud作成
+```{r}
+par(family = "HiraKakuProN-W3")
+wordcloud(Noun_res_sit$Term[1:200], Noun_res$TF[1:200], random.color = TRUE, colors = rainbow(10))
+```
+
+##### 不具合の部位
+```{r}
+Noun_res_loc <- 
+   txt_loc %>% 
+   filter(Info1 == "名詞") %>% 
+   filter(!Info2 %in% c("非自立", "代名詞")) %>%
+   group_by(Term, Info1) %>% 
+   summarise("TF" = sum(Freq)) %>% 
+   ungroup() %>% 
+   arrange(desc(TF)) %>% 
+   mutate(Pos = factor(Term, levels = .$Term))
+```
+
+```{r}
+ggplot(Noun_res_loc[1:20, ], aes(x = Pos, y = TF)) +
+   geom_bar(stat = "Identity") +
+   theme_bw(base_family = "HiraKakuProN-W3")
+```
+
+```{r}
+par(family = "HiraKakuProN-W3")
+wordcloud(Noun_res_loc$Term, Noun_res_loc$TF, random.color = TRUE, colors = rainbow(10))
+```
+
+
+
+
+```{r}
+text_all$Maker <- ifelse(is.na(text_all$車名), text_all$メーカー名等, text_all$車名)
+text_all$Nissan <- ifelse(grepl("ニッサン", text_all$Maker), 1, 0)
+text_all$Toyota <- ifelse(grepl("トヨタ", text_all$Maker), 1, 0)
+text_all$Honda  <- ifelse(grepl("ホンダ", text_all$Maker), 1, 0)
+```
+
+
+```{r}
+text_all$Num <- str_replace(text_all$対象台数, "，", "")
+text_all$Num <- str_replace(text_all$Num, "６４３９台　１６台　１０４台　合計６，５５９台", "6559")
+text_all$Num <- str_replace(text_all$Num, "台", "")
+text_all$Num <- str_replace(text_all$Num, "（国内向け生産台数を示す。）", "")
+text_all$Num <- str_replace(text_all$Num, "(国内向け生産台数を示す。)", "")
+text_all$Num <- str_replace(text_all$Num, "、", "")
+text_all$Num <- str_replace(text_all$Num, "本", "")
+text_all$Num <- stri_trans_nfkc(text_all$Num)
+
+text_all$Num <- str_replace(text_all$Num, ",", "")
+text_all$Num <- ifelse(grepl("206()", text_all$Num), "206", text_all$Num)
+
+text_all$Num <- as.numeric(text_all$Num)
+```
+
+
+```{r}
+ggplot(text_all, aes(x = Num)) +
+   geom_histogram()
+```
+
+
+```{r}
+tmp <- 
+   text_all %>% 
+   mutate("Maker2" = if_else(Nissan == 1 & Toyota == 0 & Honda == 0, "Nissan",
+                     if_else(Nissan == 0 & Toyota == 1 & Honda == 0, "Toyota",
+                     if_else(Nissan == 0 & Toyota == 0 & Honda == 1, "Honda", "Other")))) %>% 
+   select(Maker2, Num) %>% 
+   filter(Maker2 != "Other")
+
+ggplot(tmp, aes(x = Num, group = Maker2)) +
+   geom_histogram() +
+   facet_wrap(~Maker2, ncol = 1)
+```
+
 
 
 
