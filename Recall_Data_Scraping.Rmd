@@ -269,5 +269,93 @@ ggplot(tmp, aes(x = Num, group = Maker2)) +
 
 
 
+### 別のページから
 
+```{r}
+recall_html_2 <- read_html("http://carinf.mlit.go.jp/jidosha/carinf/ris/search.html?selCarTp=1&lstCarNo=1060&txtMdlNm=&txtFrDat=2000/01/01&txtToDat=2017/12/31&page=5",
+                           encoding = "UTF-8")
+```
+
+
+```{r}
+html_structure(recall_html_2)
+as_list(recall_html_2)
+xml_children(recall_html)
+xml_contents(recall_html)
+```
+
+<body>のテキストを取り出すなら以下のよう。
+```{r}
+recall_html_2 %>% 
+   html_nodes("body") %>% 
+   html_text()
+```
+
+
+```{r}
+target_list <- 
+   recall_html_2 %>% 
+   # html_nodes(xpath = "//td[@class = 'center']")
+   html_nodes(xpath = "//a")
+
+target_df <- 
+   target_list %>% 
+   html_attr("href") %>% 
+   as_data_frame()
+   
+target_url_list <- 
+   target_df %>% 
+   filter(grepl("detail", .$value))
+```
+
+
+
+http://carinf.mlit.go.jp/jidosha/carinf/ris/detail/1141591.html
+
+```{r}
+src_url <- "http://carinf.mlit.go.jp/jidosha/carinf/ris/search.html?selCarTp=1&lstCarNo=1060&txtMdlNm=&txtFrDat=2000/01/01&txtToDat=2017/12/31&page="
+link_url <- "http://carinf.mlit.go.jp/jidosha/carinf/ris/"
+target_column <- c("車名/メーカー名", "不具合装置", "状　況", "リコール開始日", "対象台数")
+html_tbl_all <- data_frame()
+
+st <- Sys.time()
+for (i in 1:1) {
+
+   target_page <- paste0(src_url, i)
+   recall_html <- read_html(target_page, encoding = "UTF-8")
+
+   target_url_list <- 
+      recall_html %>% 
+      html_nodes(xpath = "//a") %>% 
+      html_attr("href") %>% 
+      as_data_frame() %>% 
+      filter(grepl("detail", .$value))
+
+   l <- nrow(target_url_list)
+   
+   for (j in 1:l) {
+      Sys.sleep(2)
+      target_url <- paste0(link_url, target_url_list$value[j])
+      recall_html_tmp <- read_html(target_url)
+      html_tbl_tmp <- html_table(recall_html_tmp)[[1]]
+      
+      html_tbl <- 
+         html_tbl_tmp %>% 
+         filter(X1 %in% target_column) %>% 
+         rename("Term" = X1, "Value" = X2) %>%
+         select(Term, Value) %>% 
+         bind_rows(
+            html_tbl_tmp %>% 
+            filter(X3 %in% target_column) %>% 
+            rename("Term" = X3, "Value" = X4) %>%
+            select(Term, Value)) %>% 
+         spread(Term, Value)
+      
+      html_tbl_all <- bind_rows(html_tbl_all, html_tbl)
+   }
+}
+Sys.time() - st
+```
+
+一回1.6分、日産の場合は40Pあるので64分かかる計算。
 
