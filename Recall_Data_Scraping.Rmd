@@ -272,45 +272,11 @@ ggplot(tmp, aes(x = Num, group = Maker2)) +
 ### 別のページから
 
 ```{r}
-recall_html_2 <- read_html("http://carinf.mlit.go.jp/jidosha/carinf/ris/search.html?selCarTp=1&lstCarNo=1060&txtMdlNm=&txtFrDat=2000/01/01&txtToDat=2017/12/31&page=5",
-                           encoding = "UTF-8")
+Nissan_search <- ""
+Toyota_search <- ""
+Honda_search  <- ""
 ```
 
-
-```{r}
-html_structure(recall_html_2)
-as_list(recall_html_2)
-xml_children(recall_html)
-xml_contents(recall_html)
-```
-
-<body>のテキストを取り出すなら以下のよう。
-```{r}
-recall_html_2 %>% 
-   html_nodes("body") %>% 
-   html_text()
-```
-
-
-```{r}
-target_list <- 
-   recall_html_2 %>% 
-   # html_nodes(xpath = "//td[@class = 'center']")
-   html_nodes(xpath = "//a")
-
-target_df <- 
-   target_list %>% 
-   html_attr("href") %>% 
-   as_data_frame()
-   
-target_url_list <- 
-   target_df %>% 
-   filter(grepl("detail", .$value))
-```
-
-
-
-http://carinf.mlit.go.jp/jidosha/carinf/ris/detail/1141591.html
 
 ```{r}
 src_url <- "http://carinf.mlit.go.jp/jidosha/carinf/ris/search.html?selCarTp=1&lstCarNo=1060&txtMdlNm=&txtFrDat=2000/01/01&txtToDat=2017/12/31&page="
