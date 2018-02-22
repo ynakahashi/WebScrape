@@ -251,7 +251,7 @@ Noun_res_situ <-
 ```{r}
 ggplot(Noun_res_situ[1:20, ], aes(x = Pos, y = TF)) +
    geom_bar(stat = "Identity") +
-   theme_bw(base_family = "HiraKakuProN-W3")
+   theme_classic(base_family = "HiraKakuProN-W3")
 ```
 
 「"」や「","」のような変な単語(?)が混ざっていますね。これは流石に格好悪いので除いておきます。
@@ -294,6 +294,5 @@ ggplot(html_tbl_all, aes(x = Num)) +
 
 
 ## 最後に
-というわけで今回は{rvest}を用いたWebスクレイピングに挑戦しました。*read_html*で簡単にWebサイトのデータを取得することができ、*html_text()*や*html_table()*で
-
+というわけで今回は{rvest}を用いたWebスクレイピングに挑戦しました。*read_html*で簡単にWebサイトのデータを取得することができ、*html_text()*や*html_table()*で簡単に加工することが可能なため、初めての挑戦ではあったものの大きな引っかかりもなく進めることができました。今まで何となく敬遠していたのですが、積極的に使っていきたい技術ですね。
 
