@@ -1,12 +1,12 @@
 ---
-title: "RでWeb Scrapingしたい"
+title: "RでWebスクレイピングしたい"
 output: html_notebook
 authour: Y.Nakahashi
 date: 2018-02-20
 ---
 
 ## 背景
-ちょっとした用事によりリコール情報について調査する機会がありました。これまでWebスクレイピングは経験がなかったのですが、便利な関数（rvest）もあることだし、挑戦してみた結果を紹介します。
+ちょっとした用事によりリコール情報について調査する機会がありました。これまでWebスクレイピングは経験がなかったのですが、便利なライブラリ（{rvest}）もあることだし、挑戦してみた結果を紹介します。
 内容としては、国交省のサイトにある「リコール情報検索」（[こちら](http://carinf.mlit.go.jp/jidosha/carinf/ris/index.html)）からリコールデータを取得し、テキストマイニングにかけた、というものです。
 
 
@@ -14,17 +14,18 @@ date: 2018-02-20
 分析の進め方は以下の通りです：
 
  1. サイトのページ構成を把握
- 1. 構成にマッチするようにループを組んで`rvest::read_html`で読み込み
- 1. Mecabで形態素解析
- 1. 集計
+ 1. 構成にマッチするようにループを組んで`rvest::read_html`で順次読み込み
+ 1. 取得したテキストデータをMecabで形態素解析
+ 1. 可視化
 
-特別なことはしておらず、サイトのページ構成に合わせて必要なデータを取得し、集計などを行います。
+特別なことはしておらず、サイトのページ構成に合わせて必要なデータを取得し、可視化などを行います。
 
 
 ### １．サイトのページ構成を把握
 ここは、Rではなくブラウザの機能を使いました。例えば[この辺りの記事](https://book.mynavi.jp/manatee/detail/id=59386)を参考に、Google Chromeのデベロッパーツールでhtmlの構成を把握しました。
 
-### ２．構成にマッチするようにループを組んで`rvest::read_html`で読み込み
+
+### ２．構成にマッチするようにループを組んで`rvest::read_html`で順次読み込み
 #### ライブラリのインストール
 ここからがRによる処理となります。まずは必要なライブラリをインストールして読み込みます。今回新しくインストールしたライブラリは以下の通りで、RMecabは[こちらの記事](https://qiita.com/hujuu/items/314a64a50875cdabf755)を参考にMecabのインストールから行いました。以下は、Mecabのインストールが終わっている前提です。
 
@@ -52,8 +53,8 @@ library(wordcloud)
 ここで少し{RMecab}を使ってみましょう。こんな使い方ができます。
 
 ```{r}
-# res <- RMeCabC("すもももももももものうち")
-# unlist (res)
+res <- RMeCabC("すもももももももものうち")
+unlist (res)
 ```
 
 #### {rvest}のお試し
@@ -121,15 +122,16 @@ link_url <- "http://carinf.mlit.go.jp/jidosha/carinf/ris/"
 
 ```{r}
 target_column <- c("車名/メーカー名", "不具合装置", "状　況", "リコール開始日", "対象台数")
-html_tbl_all <- data_frame()
+html_tbl_all  <- data_frame()
 ```
 
 以下、リコール情報を順次取得していきます。スクリプトの流れのセクションで書いたように、検索結果の画面のページを変えつつ、各リコールの詳細結果画面へのURLを取得し、*read_html*でデータを取り出していきます。
+下のスクリプトで`target_url_list`を*sapply*すればもっと早くなるかもしれませんが、今回はパフォーマンスを求めたい訳ではないので素直にLoopを回しました。
 
 ```{r}
 st <- Sys.time()
-## iはページ数。事前にメモしておく。
-for (i in 1:1) {
+## iはページ数。事前にメモしておく。今回は5
+for (i in 1:5) {
 
    ## 検索結果の各ページのURLを指定し、データを取得
    target_page <- paste0(src_url, i)
@@ -176,18 +178,33 @@ for (i in 1:1) {
 Sys.time() - st
 ```
 
-このスクリプトでは一年分の日産のデータを取得するのにxxx分かかりました。結構時間がかかるので、データを保存しておきます。
+このスクリプトでは一年分の日産のデータを取得するのに、私の環境で約10分かかりました。結構時間がかかるので、データを保存しておきます。
 
 ```{r}
 save(html_tbl_all, file = "Recall_Data.Rdata")
 ```
 
 
-### ３．Mecabで形態素解析
-ではこれ以降、取得したデータで分析を行います。と言ってもMecabによる形態素解析を掛けた後は集計して可視化するぐらいのものです。
+### ３．取得したテキストデータをMecabで形態素解析
+ではこれ以降、取得したデータで分析を行います。と言ってもMecabによる形態素解析を掛けた後は集計して可視化するぐらいのものです。その前にデータを確認してみましょう。検索結果では90件と表示されていましたが、ちゃんと取れているでしょうか。
+
+```{r}
+dim(html_tbl_all)
+```
+
+大丈夫なようですね。データも見てみましょう。
+
+```{r}
+html_tbl_all
+```
+
+「車名」を確認すると一部にニッサン以外が含まれていますね。しかし当該の詳細結果を確認すると「いすゞ」とともに「ニッサン」がリコール対象となっており、間違いではないようです。
+
+また「状況」を確認すると、全く同じ文言が同じ日付で出ています。これは、このリコールの届出が車種別に行われているためであり、例えば「2017年12月15日」の例では、「セレナ」「キューブ」「バネット」で同じ理由によりリコールの届出があったようです。本来この後の形態素解析では、これらのテキストを集約するべきでしょう（今回はお試しなのでやりませんが）。
+
 
 #### 分析対象となる部分を取り出す
-形態素解析の対象は「状 況」です。RMecabではテキストファイルからデータを読み込んで処理するので、テキストとして書き出しておきましょう。
+さて、今回形態素解析の対象としたいテキストデータは「状 況」です。RMecabではテキストファイルからデータを読み込んで処理するので、テキストとして書き出しておきましょう。
 
 ```{r}
 load("Recall_Data.Rdata") ## 必要なら
@@ -195,34 +212,22 @@ txt_defect_situation <- html_tbl_all$`状　況`
 write.csv(txt_defect_situation, file = "Situation.csv")
 ```
 
+#### 読み込み
+書き出したテキストファイルを以下のように読み込みます。
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#### Mecabで形態素解析
-##### 読み込み
 ```{r}
-txt_sit <- RMeCabFreq("Fuguai_Johkyo.csv")
-txt_loc <- RMeCabFreq("Fuguai_Basho.csv")
+txt_situ <- RMeCabFreq("Situation.csv")
 ```
 
-##### 不具合の状況
-データ加工
+全部で529個の単語に分割されたようです。
+
+
+#### データ加工
+テキストデータはMecabによって形態素解析され、単語ごとに分割された上で品詞を割り当てられています。このうち、単語抽出の対象となりそうなものだけを使用します。今回は名詞の頻度を確認します。
+
 ```{r}
-Noun_res_sit <- 
-   txt_sit %>% 
+Noun_res_situ <- 
+   txt_situ %>% 
    filter(Info1 == "名詞") %>% 
    filter(!Info2 %in% c("非自立", "代名詞")) %>%
    group_by(Term, Info1) %>% 
@@ -232,192 +237,63 @@ Noun_res_sit <-
    mutate(Pos = factor(Term, levels = .$Term))
 ```
 
-単語の頻度で棒グラフにより可視化
+上のスクリプトで最後に`factor`にしているのは、グラフにする時に単語の並び順ではなく頻度で表示するためです。
+
+
+### ４．可視化
+では加工済みのデータを用いて単語の頻度を可視化してみましょう。まずは棒グラフですが、単語の数が多いので上位20個に限定しています。なおMacの場合、日本語が表示されない可能性があります（私は表示されませんでした）。その場合、下記のページが参考になると思います。私は下記を全て実行したところ表示できるようになりました：
+
+ - http://blog.0093.tv/2011/05/rstudio-for-mac-os-x.html
+ - https://ameblo.jp/mojio914/entry-12030044452.html
+ - https://www.karada-good.net/analyticsr/r-58
+
+
 ```{r}
-ggplot(Noun_res_sit[1:20, ], aes(x = Pos, y = TF)) +
+ggplot(Noun_res_situ[1:20, ], aes(x = Pos, y = TF)) +
    geom_bar(stat = "Identity") +
    theme_bw(base_family = "HiraKakuProN-W3")
 ```
 
-Wordcloud作成
-```{r}
-par(family = "HiraKakuProN-W3")
-wordcloud(Noun_res_sit$Term[1:200], Noun_res$TF[1:200], random.color = TRUE, colors = rainbow(10))
-```
-
-##### 不具合の部位
-```{r}
-Noun_res_loc <- 
-   txt_loc %>% 
-   filter(Info1 == "名詞") %>% 
-   filter(!Info2 %in% c("非自立", "代名詞")) %>%
-   group_by(Term, Info1) %>% 
-   summarise("TF" = sum(Freq)) %>% 
-   ungroup() %>% 
-   arrange(desc(TF)) %>% 
-   mutate(Pos = factor(Term, levels = .$Term))
-```
+「"」や「","」のような変な単語(?)が混ざっていますね。これは流石に格好悪いので除いておきます。
 
 ```{r}
-ggplot(Noun_res_loc[1:20, ], aes(x = Pos, y = TF)) +
+Noun_res_situ %>% 
+   filter(!Term %in% c("\"", "\",\"")) %>% 
+   slice(1:20) %>% 
+   ggplot(., aes(x = Pos, y = TF)) +
    geom_bar(stat = "Identity") +
-   theme_bw(base_family = "HiraKakuProN-W3")
+   theme_classic(base_family = "HiraKakuProN-W3")
 ```
 
+なるほど、なんかそれっぽい単語が抽出されていますね〜。しかし、実際のテキストを見ていると、例えば「検査」という単語は「完成検査」という熟語として使われることが多いなど、ドメイン特有の表現があったりします。そういった特有の表現を集めた辞書がないと、こういった単語抽出はあまり効果的でなかったりします。
+
+続いてWordcloudを作成してみます。ここでも単語の数が多いので絞ろうと思うのですが、個数ではなく出現頻度で`filter`しましょう。TFが4以上の単語を抽出すると、以下のようになります。
+
 ```{r}
+Noun_res_situ_4 <- 
+   Noun_res_situ %>% 
+   filter(!Term %in% c("\"", "\",\"")) %>% 
+   filter(TF >= 4)
 par(family = "HiraKakuProN-W3")
-wordcloud(Noun_res_loc$Term, Noun_res_loc$TF, random.color = TRUE, colors = rainbow(10))
+wordcloud(Noun_res_situ_4$Term, Noun_res_situ_4$TF, random.color = TRUE, colors = rainbow(10))
 ```
 
 
-
-
-```{r}
-text_all$Maker <- ifelse(is.na(text_all$車名), text_all$メーカー名等, text_all$車名)
-text_all$Nissan <- ifelse(grepl("ニッサン", text_all$Maker), 1, 0)
-text_all$Toyota <- ifelse(grepl("トヨタ", text_all$Maker), 1, 0)
-text_all$Honda  <- ifelse(grepl("ホンダ", text_all$Maker), 1, 0)
-```
-
+### ５．おまけ
+以上でやりたかったことは終わりなのですが、最後におまけでリコール総台数の確認をしてみます。「対象台数」列に入っている数値を集計したいのですが、文字列として入力されているので修正します。
 
 ```{r}
-text_all$Num <- str_replace(text_all$対象台数, "，", "")
-text_all$Num <- str_replace(text_all$Num, "６４３９台　１６台　１０４台　合計６，５５９台", "6559")
-text_all$Num <- str_replace(text_all$Num, "台", "")
-text_all$Num <- str_replace(text_all$Num, "（国内向け生産台数を示す。）", "")
-text_all$Num <- str_replace(text_all$Num, "(国内向け生産台数を示す。)", "")
-text_all$Num <- str_replace(text_all$Num, "、", "")
-text_all$Num <- str_replace(text_all$Num, "本", "")
-text_all$Num <- stri_trans_nfkc(text_all$Num)
-
-text_all$Num <- str_replace(text_all$Num, ",", "")
-text_all$Num <- ifelse(grepl("206()", text_all$Num), "206", text_all$Num)
-
-text_all$Num <- as.numeric(text_all$Num)
-```
-
-
-```{r}
-ggplot(text_all, aes(x = Num)) +
-   geom_histogram()
-```
-
-
-```{r}
-tmp <- 
-   text_all %>% 
-   mutate("Maker2" = if_else(Nissan == 1 & Toyota == 0 & Honda == 0, "Nissan",
-                     if_else(Nissan == 0 & Toyota == 1 & Honda == 0, "Toyota",
-                     if_else(Nissan == 0 & Toyota == 0 & Honda == 1, "Honda", "Other")))) %>% 
-   select(Maker2, Num) %>% 
-   filter(Maker2 != "Other")
-
-ggplot(tmp, aes(x = Num, group = Maker2)) +
+html_tbl_all$Num <- html_tbl_all$対象台数
+html_tbl_all$Num <- str_replace_all(html_tbl_all$Num, ",", "")
+html_tbl_all$Num <- str_replace_all(html_tbl_all$Num, "台", "")
+html_tbl_all$Num <- as.numeric(html_tbl_all$Num)
+ggplot(html_tbl_all, aes(x = Num)) +
    geom_histogram() +
-   facet_wrap(~Maker2, ncol = 1)
+   theme_classic()
 ```
 
 
-
-
-
-
-
-
-
-
-
-
-##### オブジェクトの中身の確認
-関数はこんな感じ。
-```{r}
-# html_structure(recall_html)
-# as_list(recall_html)
-# xml_children(recall_html)
-# xml_contents(recall_html)
-```
-
-<body>のテキストを取り出すなら以下のよう。
-```{r}
-recall_html %>% 
-   html_nodes("body") %>% 
-   html_text()
-```
-
-ページの全てのtableのテキストを取り出すならこう。
-```{r}
-# tbl_txt <- 
-#    recall_html %>% 
-#    html_nodes(xpath="//table") %>% 
-#    html_text()
-```
-
-```{r}
-# tbl_txt[2]
-```
-
-```{r}
-# cat(tbl_txt[2])
-```
-
-必要なデータだけを取り出してみる。
-```{r}
-# extract_item <- c("車　名", "対象台数", "不具合の部位", "不具合の状況")
-# html_table(recall_html)[[2]] %>% 
-#    filter(X1 %in% extract_item) %>% 
-#    select(X1, X2)
-```
-
-#### 構成にマッチするようにループを組んで`rvest::read_html`で読み込み
-本番。ページ構成が年次によって違うので、ひとまず取りやすい年次だけ対象とする。
-必要になった段階で他の対応を考える。
-
-```{r warning = FALSE}
-# options(warn = -1)
-extract_item <- c("車名", "車 名", "車 名", "車　名", "メーカー名等", "対象台数", "不具合の部位",
-                  "不具合の状況")
-text_all <- data.frame()
-# for (i in 4:5) {
-   ## 年を指定。16年と17年を対象とする
-   ## 今回は時間の都合上、データの取得年次を16年に限定する
-   i <- 4
-   Y <- str_pad(i, 2, pad = 0)
-   
-   for (j in 1:12) {
-      ## 月を指定
-      M <- str_pad(j, 2, pad = 0)
-      
-      for (k in 1:31) {
-         ## 日付を指定
-         D <- str_pad(k, 2, pad = 0)
-         
-         ## break用のフラグ
-         Flag <- 0
-         
-         for (l in 1:10) {
-            Sys.sleep(3)
-            page_name <- paste0("http://www.mlit.go.jp/jidosha/recall/", 
-                                "recall", Y, "/", M, "/", "recall", M, "-", D, l, ".html")
-            tryCatch({
-               recall_html_tmp <- read_html(page_name, encoding = "SJIS")
-            }, error = function(e){
-               Flag <<- 1})
-            if(Flag == 1) break
-            
-            text_tmp <- 
-               html_table(recall_html_tmp)[[2]] %>% 
-               filter(X1 %in% extract_item) %>% 
-               select(X1, X2) %>% 
-               mutate("YMD" = sprintf("%s年%s月%s日", Y, M, D)) %>%
-               spread(X1, X2)
-            text_all <- 
-               text_all %>% 
-               bind_rows(text_tmp)
-         }
-      }
-   }
-# }
-```
-
+## 最後に
+というわけで今回は{rvest}を用いたWebスクレイピングに挑戦しました。*read_html*で簡単にWebサイトのデータを取得することができ、*html_text()*や*html_table()*で
 
 
